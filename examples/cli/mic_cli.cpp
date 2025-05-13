@@ -12,8 +12,7 @@ cmake -B build
 cmake --build build --config Release
 
 # run the project
-./build/mic-cli --model models/ggml-base.bin --vad --vad-model ./models/silero-v5.1.2-ggml.bin
-
+./build/bin/mic-cli --model models/ggml-base.bin --vad -vm ./models/silero-v5.1.2-ggml.bin -f - -l ko
 */
 #include "common.h"
 #include "common-whisper.h"
