@@ -1,5 +1,57 @@
 # whisper.cpp/examples/cli
 
+```mermaid
+flowchart LR
+    classDef process fill:#e1f5fe,stroke:#01579b,color:#01579b,font-size:11px;
+    classDef data fill:#e8f5e9,stroke:#2e7d32,color:#2e7d32,font-size:11px;
+    classDef control fill:#fff3e0,stroke:#e65100,color:#e65100,font-size:11px;
+    
+    %% Parameter information displayed separately below the main diagram
+    subgraph "Audio Configuration Parameters"
+        O[Sample Rate: 16kHz]
+        P[Buffer Size: 48,000 <br> samples,3 seconds]
+        Q[Frames Per Buffer: 1024 samples]
+    end
+    
+    class O,P,Q data;
+```
+```mermaid
+flowchart LR
+    classDef process fill:#e1f5fe,stroke:#01579b,color:#01579b,font-size:11px;
+    classDef data fill:#e8f5e9,stroke:#2e7d32,color:#2e7d32,font-size:11px;
+    classDef control fill:#fff3e0,stroke:#e65100,color:#e65100,font-size:11px;
+    
+    A[Program Start:<br>Initialize Whisper & PortAudio<br>Setup Microphone Stream]
+    A --> E[Start Audio Recording]
+    E -->|Buffer samples| F{Buffer full?}
+    F -->|Yes| G[Process in new thread]
+    F -->|No| E
+    
+    G --> H[VAD Processing]
+    H --> I[whisper.cpp Speech Recognition]
+    I --> J[Output Results]
+    J --> E
+
+    
+    subgraph "Main Loop"
+        E
+        F
+    end
+    
+    subgraph "Audio Processing Thread"
+        G
+        H
+        I
+        J
+    end
+    
+    class A,E,G,H,I,J,L,M process;
+    class F,K control;
+    
+    
+    class O,P,Q data;
+```
+
 This is the main example demonstrating most of the functionality of the Whisper model.
 It can be used as a reference for using the `whisper.cpp` library in other projects.
 
@@ -64,3 +116,11 @@ options:
   --grammar-rule RULE            [       ] top-level GBNF grammar rule name
   --grammar-penalty N            [100.0  ] scales down logits of nongrammar tokens
 ```
+
+Key buffer parameters:
+- **Sample Rate**: 16,000 Hz (default)
+- **Buffer Size**: 48,000 samples (3 seconds of audio)
+- **Frames Per Buffer**: 1,024 samples
+- **Processing**: When buffer is full, a new thread processes the audio while main thread continues capturing
+
+The callback function stores audio samples in both a continuous recording buffer and a fixed-size processing buffer. When the processing buffer is filled, the audio is analyzed by Whisper in a separate thread to maintain real-time operation.
