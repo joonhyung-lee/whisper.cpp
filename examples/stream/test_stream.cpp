@@ -2,6 +2,14 @@
 //
 // A very quick-n-dirty implementation serving mainly as a proof of concept.
 //
+
+/*
+cmake -B build -DWHISPER_SDL2=ON
+cmake --build build --config Release
+./build/bin/whisper-stream -m ./models/ggml-tiny.bin -t 8 --step 500 --length 5000 -l ko
+./build/bin/whisper-stream -m ./models/ggml-tiny.bin -t 8 --step 0 -l ko
+*/
+
 #include "common-sdl.h"
 #include "common.h"
 #include "common-whisper.h"
@@ -230,18 +238,13 @@ int main(int argc, char ** argv) {
 
     // main audio loop
     while (is_running) {
-        if (params.save_audio) {
-            wavWriter.write(pcmf32_new.data(), pcmf32_new.size());
-        }
         // handle Ctrl + C
         is_running = sdl_poll_events();
-
         if (!is_running) {
             break;
         }
 
         // process new audio
-
         if (!use_vad) {
             while (true) {
                 // handle Ctrl + C
@@ -258,6 +261,10 @@ int main(int argc, char ** argv) {
                 }
 
                 if ((int) pcmf32_new.size() >= n_samples_step) {
+                    // Write the newly acquired audio chunk *after* getting it
+                    if (params.save_audio) {
+                        wavWriter.write(pcmf32_new.data(), pcmf32_new.size());
+                    }
                     audio.clear();
                     break;
                 }
@@ -323,11 +330,6 @@ int main(int argc, char ** argv) {
 
             wparams.tdrz_enable      = params.tinydiarize; // [TDRZ]
 
-            // // Added
-            // wparams.no_speech_thold = 0.6f;
-            // wparams.audio_ctx = 0;
-            // wparams.max_tokens = 128;
-
             // disable temperature fallback
             //wparams.temperature_inc  = -1.0f;
             wparams.temperature_inc  = params.no_fallback ? 0.0f : wparams.temperature_inc;
@@ -335,66 +337,54 @@ int main(int argc, char ** argv) {
             wparams.prompt_tokens    = params.no_context ? nullptr : prompt_tokens.data();
             wparams.prompt_n_tokens  = params.no_context ? 0       : prompt_tokens.size();
 
+            auto t_inference_start = std::chrono::high_resolution_clock::now();
             if (whisper_full(ctx, wparams, pcmf32.data(), pcmf32.size()) != 0) {
                 fprintf(stderr, "%s: failed to process audio\n", argv[0]);
                 return 6;
+            }
+            auto t_inference_end = std::chrono::high_resolution_clock::now();
+            long long inference_duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t_inference_end - t_inference_start).count();
+
+            // Collect all segments for this inference pass into a single string
+            std::string combined_text;
+            const int n_segments = whisper_full_n_segments(ctx);
+            for (int i = 0; i < n_segments; ++i) {
+                const char * segment_text = whisper_full_get_segment_text(ctx, i);
+                combined_text += segment_text;
             }
 
             // print result;
             {
                 if (!use_vad) {
-                    printf("\33[2K\r");
-
-                    // print long empty line to clear the previous line
+                    // Continuous output mode
+                    printf("\33[2K\r"); // Clear line
+                    // Print long empty line to clear the previous line (original behavior)
                     printf("%s", std::string(100, ' ').c_str());
+                    printf("\33[2K\r"); // Clear line again
 
-                    printf("\33[2K\r");
-                } else {
-                    const int64_t t1 = (t_last - t_start).count()/1000000;
-                    const int64_t t0 = std::max(0.0, t1 - pcmf32.size()*1000.0/WHISPER_SAMPLE_RATE);
+                    printf("[%lld ms] %s", inference_duration_ms, combined_text.c_str());
+                    fflush(stdout);
 
-                    printf("\n");
-                    printf("### Transcription %d START | t0 = %d ms | t1 = %d ms\n", n_iter, (int) t0, (int) t1);
-                    printf("\n");
-                }
-
-                const int n_segments = whisper_full_n_segments(ctx);
-                for (int i = 0; i < n_segments; ++i) {
-                    const char * text = whisper_full_get_segment_text(ctx, i);
-
-                    if (params.no_timestamps) {
-                        printf("%s", text);
-                        fflush(stdout);
-
-                        if (params.fname_out.length() > 0) {
-                            fout << text;
-                        }
-                    } else {
-                        const int64_t t0 = whisper_full_get_segment_t0(ctx, i);
-                        const int64_t t1 = whisper_full_get_segment_t1(ctx, i);
-
-                        std::string output = "[" + to_timestamp(t0, false) + " --> " + to_timestamp(t1, false) + "]  " + text;
-
-                        if (whisper_full_get_segment_speaker_turn_next(ctx, i)) {
-                            output += " [SPEAKER_TURN]";
-                        }
-
-                        output += "\n";
-
-                        printf("%s", output.c_str());
-                        fflush(stdout);
-
-                        if (params.fname_out.length() > 0) {
-                            fout << output;
-                        }
+                    if (params.fname_out.length() > 0) {
+                        fout << "[" << inference_duration_ms << " ms] " << combined_text << std::endl;
                     }
-                }
+                } else {
+                    // VAD mode (transcribe on speech activity)
+                    const int64_t t1_for_header = (t_last - t_start).count()/1000000;
+                    const int64_t t0_for_header = std::max(0.0, t1_for_header - pcmf32.size()*1000.0/WHISPER_SAMPLE_RATE);
 
-                if (params.fname_out.length() > 0) {
-                    fout << std::endl;
-                }
+                    printf("\n");
+                    printf("### Transcription %d START | t0 = %lld ms | t1 = %lld ms\n", n_iter, (long long)t0_for_header, (long long)t1_for_header);
+                    printf("\n");
 
-                if (use_vad) {
+                    // Print the combined text with latency
+                    printf("[%lld ms] %s\n", inference_duration_ms, combined_text.c_str());
+                    fflush(stdout);
+
+                    if (params.fname_out.length() > 0) {
+                        fout << "[" << inference_duration_ms << " ms] " << combined_text << std::endl;
+                    }
+
                     printf("\n");
                     printf("### Transcription %d END\n", n_iter);
                 }
