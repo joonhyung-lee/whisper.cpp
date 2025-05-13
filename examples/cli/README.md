@@ -2,12 +2,12 @@
 
 ```mermaid
 flowchart LR
-    classDef process fill:#e1f5fe,stroke:#01579b,color:#01579b,font-size:11px;
-    classDef data fill:#e8f5e9,stroke:#2e7d32,color:#2e7d32,font-size:11px;
-    classDef control fill:#fff3e0,stroke:#e65100,color:#e65100,font-size:11px;
+    classDef process fill:#e1f5fe,stroke:#01579b,color:#01579b,font-size:12px;
+    classDef data fill:#e8f5e9,stroke:#2e7d32,color:#2e7d32,font-size:12px;
+    classDef control fill:#fff3e0,stroke:#e65100,color:#e65100,font-size:12px;
     
     %% Parameter information displayed separately below the main diagram
-    subgraph "Audio Configuration Parameters"
+    subgraph "Audio Configurations" ["Audio Configurations"]
         O[Sample Rate: 16kHz]
         P[Buffer Size: 48,000 <br> samples,3 seconds]
         Q[Frames Per Buffer: 1024 samples]
