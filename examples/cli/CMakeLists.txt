@@ -27,7 +27,6 @@ else()
   message(FATAL_ERROR "PortAudio not found. Please install with 'brew install portaudio'")
 endif()
 
-
 # Configure targets
 target_link_libraries(${TARGET} PRIVATE common whisper ${FFMPEG_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 
